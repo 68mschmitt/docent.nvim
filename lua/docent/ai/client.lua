@@ -312,6 +312,12 @@ function M.get_session_id()
   return state.session_id
 end
 
+---Get the server URL.
+---@return string|nil
+function M.get_server_url()
+  return state.server_url
+end
+
 ---Clean up: stop auto-started server.
 function M.shutdown()
   if state.server_job then

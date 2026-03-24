@@ -69,6 +69,40 @@ function M.create_commands()
   end, {
     desc = "Close the review walkthrough",
   })
+
+  vim.api.nvim_create_user_command("DocentAttach", function()
+    local ai_client = require("docent.ai.client")
+    local cfg = config.get()
+    local server_url = ai_client.get_server_url()
+    local session_id = ai_client.get_session_id()
+
+    if not server_url then
+      vim.notify("[docent] No OpenCode server connection. Start a review first.", vim.log.levels.WARN)
+      return
+    end
+
+    local cmd = cfg.opencode_cmd .. " attach " .. server_url
+    if session_id then
+      cmd = cmd .. " --session " .. session_id
+    end
+
+    -- Open in a new tab with a terminal buffer
+    vim.cmd("tabnew")
+    vim.fn.termopen(cmd, {
+      on_exit = function()
+        -- When the user quits the TUI, close this tab
+        vim.schedule(function()
+          local buf = vim.api.nvim_get_current_buf()
+          if vim.bo[buf].buftype == "terminal" then
+            vim.cmd("bdelete!")
+          end
+        end)
+      end,
+    })
+    vim.cmd("startinsert")
+  end, {
+    desc = "Attach to the OpenCode session to watch the AI review in real-time",
+  })
 end
 
 return M
