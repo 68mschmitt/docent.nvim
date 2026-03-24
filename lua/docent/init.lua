@@ -86,11 +86,10 @@ function M.create_commands()
       cmd = cmd .. " --session " .. session_id
     end
 
-    -- Open in a new tab with a terminal buffer
-    vim.cmd("tabnew")
+    -- Open in a vertical split with a terminal buffer
+    vim.cmd("vsplit")
     vim.fn.termopen(cmd, {
       on_exit = function()
-        -- When the user quits the TUI, close this tab
         vim.schedule(function()
           local buf = vim.api.nvim_get_current_buf()
           if vim.bo[buf].buftype == "terminal" then

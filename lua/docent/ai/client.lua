@@ -131,9 +131,11 @@ function M.ensure_server(callback)
     return
   end
 
-  -- Auto-start the server
+  -- Auto-start the server in the current working directory
+  local cwd = vim.fn.getcwd()
   local cmd = { cfg.opencode_cmd, "serve", "--port", tostring(cfg.opencode_port) }
   state.server_job = vim.fn.jobstart(cmd, {
+    cwd = cwd,
     detach = true,
     on_stderr = function(_, data)
       if data and data[1] and data[1] ~= "" then
