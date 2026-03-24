@@ -72,6 +72,8 @@ function M.create_commands()
 
   vim.api.nvim_create_user_command("DocentAttach", function()
     local ai_client = require("docent.ai.client")
+    local diff_view = require("docent.ui.diff_view")
+    local layout = require("docent.layout.manager")
     local cfg = config.get()
     local server_url = ai_client.get_server_url()
     local session_id = ai_client.get_session_id()
@@ -81,26 +83,26 @@ function M.create_commands()
       return
     end
 
+    if not layout.is_open() then
+      vim.notify("[docent] No docent layout open. Start a review first.", vim.log.levels.WARN)
+      return
+    end
+
+    -- Toggle: if terminal is already showing, close it and render the diff
+    if diff_view.is_terminal_open() then
+      diff_view.close_terminal()
+      diff_view.render()
+      return
+    end
+
+    -- Open the terminal in the diff panel
     local cmd = cfg.opencode_cmd .. " attach " .. server_url
     if session_id then
       cmd = cmd .. " --session " .. session_id
     end
-
-    -- Open in a vertical split with a terminal buffer
-    vim.cmd("vsplit")
-    vim.fn.termopen(cmd, {
-      on_exit = function()
-        vim.schedule(function()
-          local buf = vim.api.nvim_get_current_buf()
-          if vim.bo[buf].buftype == "terminal" then
-            vim.cmd("bdelete!")
-          end
-        end)
-      end,
-    })
-    vim.cmd("startinsert")
+    diff_view.open_terminal(cmd)
   end, {
-    desc = "Attach to the OpenCode session to watch the AI review in real-time",
+    desc = "Toggle the OpenCode session in the diff panel",
   })
 end
 

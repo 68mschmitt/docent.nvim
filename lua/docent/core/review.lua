@@ -53,11 +53,29 @@ local function stage_error(stage_id, detail)
 end
 
 ---Transition from loading to walkthrough mode.
----Sets up keymaps and renders all panels in active mode.
+---Closes the OpenCode terminal, then sets up keymaps and renders all panels.
 local function transition_to_walkthrough()
+  -- Close the terminal showing the OpenCode session
+  diff_view.close_terminal()
+
   local walkthrough = require("docent.layout.walkthrough")
   walkthrough.setup_keymaps()
   walkthrough.render_all()
+  layout.focus("findings")
+end
+
+---Attach the OpenCode TUI to the diff panel so the user can watch the AI work.
+local function attach_session_to_diff_panel()
+  local cfg = require("docent.config").get()
+  local server_url = ai_client.get_server_url()
+  local session_id = ai_client.get_session_id()
+  if not server_url or not session_id then return end
+
+  local cmd = string.format("%s attach %s --session %s",
+    cfg.opencode_cmd, server_url, session_id)
+  diff_view.open_terminal(cmd)
+
+  -- Return focus to findings panel so the user sees the stages
   layout.focus("findings")
 end
 
@@ -148,6 +166,9 @@ function M.start(pr_ref)
             return
           end
           stage_done("session")
+
+          -- Attach the OpenCode TUI in the diff panel before the AI review starts
+          attach_session_to_diff_panel()
 
           -- Step 5: AI review
           stage_active("review")
