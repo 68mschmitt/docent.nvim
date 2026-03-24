@@ -22,11 +22,12 @@ M.chat_open = false
 
 ---Keymap hints for the note panel (without chat).
 local note_hints = {
-  { key = "a", desc = "acknowledge" },
-  { key = "d", desc = "dismiss" },
-  { key = "c", desc = "comment" },
-  { key = "?", desc = "follow-up" },
-  { key = "q", desc = "close" },
+  { key = "j/k", desc = "scroll" },
+  { key = "a",   desc = "acknowledge" },
+  { key = "d",   desc = "dismiss" },
+  { key = "c",   desc = "comment" },
+  { key = "?",   desc = "follow-up" },
+  { key = "q",   desc = "close" },
 }
 
 ---Keymap hints for the chat panel.
@@ -305,6 +306,20 @@ function M.get_win()
     end
   end
   return nil
+end
+
+---Scroll the note panel by a number of lines.
+---Positive = down, negative = up. Can be called from any panel.
+---@param lines number
+function M.scroll(lines)
+  local win = M.get_win()
+  if not win or not vim.api.nvim_win_is_valid(win) then return end
+  vim.api.nvim_win_call(win, function()
+    local cur = vim.api.nvim_win_get_cursor(win)
+    local line_count = vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win))
+    local new_line = math.max(1, math.min(line_count, cur[1] + lines))
+    vim.api.nvim_win_set_cursor(win, { new_line, 0 })
+  end)
 end
 
 ---Clean up all note panel resources.

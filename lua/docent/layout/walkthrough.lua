@@ -246,6 +246,10 @@ function M.setup_keymaps()
   -- Note panel specific keymaps
   if note_panel.buf and vim.api.nvim_buf_is_valid(note_panel.buf) then
     local buf = note_panel.buf
+    vim.keymap.set("n", "j", function() note_panel.scroll(1) end, { buffer = buf, desc = "Docent: Scroll note down", nowait = true })
+    vim.keymap.set("n", "k", function() note_panel.scroll(-1) end, { buffer = buf, desc = "Docent: Scroll note up", nowait = true })
+    vim.keymap.set("n", "<C-d>", function() note_panel.scroll(5) end, { buffer = buf, desc = "Docent: Scroll note down 5", nowait = true })
+    vim.keymap.set("n", "<C-u>", function() note_panel.scroll(-5) end, { buffer = buf, desc = "Docent: Scroll note up 5", nowait = true })
     vim.keymap.set("n", "a", M.acknowledge, { buffer = buf, desc = "Docent: Acknowledge", nowait = true })
     vim.keymap.set("n", "d", M.dismiss, { buffer = buf, desc = "Docent: Dismiss", nowait = true })
     vim.keymap.set("n", "<Tab>", function() layout.focus("findings") end, { buffer = buf, desc = "Docent: Focus findings", nowait = true })
@@ -254,6 +258,14 @@ function M.setup_keymaps()
         note_panel.close_chat()
       end
     end, { buffer = buf, desc = "Docent: Close chat", nowait = true })
+  end
+
+  -- Remote note scrolling from findings and diff panels
+  for _, buf in ipairs({ findings_list.buf, diff_view.buf }) do
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+      vim.keymap.set("n", "<C-d>", function() note_panel.scroll(5) end, { buffer = buf, desc = "Docent: Scroll note down", nowait = true })
+      vim.keymap.set("n", "<C-u>", function() note_panel.scroll(-5) end, { buffer = buf, desc = "Docent: Scroll note up", nowait = true })
+    end
   end
 end
 
