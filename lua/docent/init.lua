@@ -67,7 +67,108 @@ function M.create_commands()
   vim.api.nvim_create_user_command("DocentClose", function()
     require("docent.layout.walkthrough").close()
   end, {
-    desc = "Close the review walkthrough",
+    desc = "Close the review and restore original branch",
+  })
+
+  vim.api.nvim_create_user_command("DocentHide", function()
+    require("docent.layout.walkthrough").hide()
+  end, {
+    desc = "Hide the review layout (keeps session alive)",
+  })
+
+  vim.api.nvim_create_user_command("DocentResume", function()
+    local walkthrough = require("docent.layout.walkthrough")
+    local session = require("docent.core.session")
+    if session.is_active() then
+      walkthrough.resume()
+    else
+      -- Try loading the last saved review for this repo
+      local saved = require("docent.core.storage")
+      local data = saved.load_latest()
+      if data then
+        session.deserialize(data)
+        walkthrough.resume()
+      else
+        vim.notify("[docent] No active or saved review to resume.", vim.log.levels.WARN)
+      end
+    end
+  end, {
+    desc = "Resume a hidden or saved review",
+  })
+
+  vim.api.nvim_create_user_command("DocentSave", function()
+    local session = require("docent.core.session")
+    local storage = require("docent.core.storage")
+    local data = session.serialize()
+    if not data then
+      vim.notify("[docent] No active review to save.", vim.log.levels.WARN)
+      return
+    end
+    local path, err = storage.save(data)
+    if err then
+      vim.notify("[docent] " .. err, vim.log.levels.ERROR)
+    else
+      vim.notify("[docent] Review saved to " .. path, vim.log.levels.INFO)
+    end
+  end, {
+    desc = "Save the current review to disk",
+  })
+
+  vim.api.nvim_create_user_command("DocentLoad", function(cmd_opts)
+    local storage = require("docent.core.storage")
+    local session = require("docent.core.session")
+    local walkthrough = require("docent.layout.walkthrough")
+
+    local file = cmd_opts.args
+    if not file or file == "" then
+      -- Pick from saved reviews
+      local files = storage.list_saved()
+      if #files == 0 then
+        vim.notify("[docent] No saved reviews found.", vim.log.levels.WARN)
+        return
+      end
+      vim.ui.select(files, {
+        prompt = "Select a saved review:",
+        format_item = function(f)
+          return vim.fn.fnamemodify(f, ":t:r") -- show filename without extension
+        end,
+      }, function(selected)
+        if not selected then return end
+        local data, err = storage.load(selected)
+        if err then
+          vim.notify("[docent] " .. err, vim.log.levels.ERROR)
+          return
+        end
+        if session.deserialize(data) then
+          walkthrough.resume()
+        else
+          vim.notify("[docent] Failed to load review: invalid data", vim.log.levels.ERROR)
+        end
+      end)
+    else
+      local data, err = storage.load(file)
+      if err then
+        vim.notify("[docent] " .. err, vim.log.levels.ERROR)
+        return
+      end
+      if session.deserialize(data) then
+        walkthrough.resume()
+      else
+        vim.notify("[docent] Failed to load review: invalid data", vim.log.levels.ERROR)
+      end
+    end
+  end, {
+    nargs = "?",
+    desc = "Load a saved review from disk",
+    complete = function()
+      local storage = require("docent.core.storage")
+      local files = storage.list_saved()
+      local names = {}
+      for _, f in ipairs(files) do
+        table.insert(names, f)
+      end
+      return names
+    end,
   })
 
   vim.api.nvim_create_user_command("DocentAttach", function()

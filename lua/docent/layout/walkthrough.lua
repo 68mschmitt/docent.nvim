@@ -176,7 +176,42 @@ function M.request_changes()
   end)
 end
 
----Close the walkthrough and clean up.
+---Hide the walkthrough layout without destroying the session.
+---The review can be reopened with resume().
+function M.hide()
+  note_panel.close_chat()
+  diff_view.close_terminal()
+  layout.close()
+  -- Session state is preserved -- do NOT call session.reset()
+end
+
+---Resume a hidden review. Reopens the layout and renders all panels
+---from the existing session state.
+---@return boolean success
+function M.resume()
+  if not session.is_active() then
+    vim.notify("[docent] No active review to resume. Start one with :DocentReview", vim.log.levels.WARN)
+    return false
+  end
+
+  if layout.is_open() then
+    -- Already open, just focus it
+    layout.focus("findings")
+    return true
+  end
+
+  if not layout.open() then
+    vim.notify("[docent] Failed to open layout", vim.log.levels.ERROR)
+    return false
+  end
+
+  M.setup_keymaps()
+  M.render_all()
+  layout.focus("findings")
+  return true
+end
+
+---Close the walkthrough and fully destroy the session.
 ---Restores the original git branch and pops the stash if one was created.
 function M.close()
   note_panel.close_chat()
@@ -203,7 +238,8 @@ function M.setup_keymaps()
   }
 
   local shared_maps = {
-    { "q", M.close,           "Close review" },
+    { "q", M.hide,            "Hide review" },
+    { "Q", M.close,           "Close review (restore branch)" },
     { "c", M.comment,         "Comment on PR" },
     { "?", M.followup,        "Ask follow-up" },
   }

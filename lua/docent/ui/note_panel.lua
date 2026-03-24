@@ -27,7 +27,8 @@ local note_hints = {
   { key = "d",   desc = "dismiss" },
   { key = "c",   desc = "comment" },
   { key = "?",   desc = "follow-up" },
-  { key = "q",   desc = "close" },
+  { key = "q",   desc = "hide" },
+  { key = "Q",   desc = "close" },
 }
 
 ---Keymap hints for the chat panel.

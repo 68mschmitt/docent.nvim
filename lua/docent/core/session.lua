@@ -336,4 +336,77 @@ function M.stats()
   }
 end
 
+---Serialize the session to a table that can be JSON-encoded and saved to disk.
+---Only includes the data needed to reconstruct the review walkthrough.
+---@return table|nil serialized Returns nil if no active session
+function M.serialize()
+  if not session.active then return nil end
+
+  -- Serialize findings (strip functions, keep data)
+  local findings_data = {}
+  for _, f in ipairs(session.findings) do
+    table.insert(findings_data, {
+      index = f.index,
+      category = f.category,
+      title = f.title,
+      file = f.file,
+      line = f.line,
+      end_line = f.end_line,
+      explanation = f.explanation,
+      learning = f.learning,
+      suggestion = f.suggestion,
+      status = f.status,
+      chat = f.chat,
+    })
+  end
+
+  return {
+    version = 1,
+    pr_info = session.pr_info,
+    diff_text = session.diff_text,
+    summary = session.summary,
+    assessment = session.assessment,
+    findings = findings_data,
+    current_index = session.current_index,
+  }
+end
+
+---Restore a session from a serialized table (from disk or from a previous hide).
+---@param data table The serialized session data
+---@return boolean success
+function M.deserialize(data)
+  if not data or data.version ~= 1 then
+    return false
+  end
+
+  session.pr_info = data.pr_info
+  session.diff_text = data.diff_text
+  if data.diff_text then
+    session.diff_files = M.parse_diff(data.diff_text)
+  end
+  session.summary = data.summary or ""
+  session.assessment = data.assessment or ""
+  session.current_index = data.current_index or 1
+  session.findings = {}
+  for _, fd in ipairs(data.findings or {}) do
+    table.insert(session.findings, {
+      index = fd.index,
+      category = fd.category,
+      title = fd.title,
+      file = fd.file,
+      line = fd.line,
+      end_line = fd.end_line,
+      explanation = fd.explanation,
+      learning = fd.learning,
+      suggestion = fd.suggestion,
+      status = fd.status or "pending",
+      chat = fd.chat or {},
+    })
+  end
+  session.loading = false
+  session.active = true
+  session.stages = {}
+  return true
+end
+
 return M

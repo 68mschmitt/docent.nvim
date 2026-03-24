@@ -9,6 +9,7 @@ local M = {}
 ---@field show_keymaps boolean Show keymap hints in panel footers
 ---@field review_prompt string System prompt prefix for AI review
 ---@field model? {providerID: string, modelID: string} Model override
+---@field data_dir string Directory for saved reviews
 
 ---@class docent.LayoutConfig
 ---@field finding_list_width number Width of the findings list panel in columns
@@ -41,6 +42,7 @@ M.defaults = {
     "then questions, then positive callouts, then informational notes.",
   }, " "),
   model = nil,
+  data_dir = vim.fn.stdpath("data") .. "/docent",
 }
 
 ---@type docent.Config
