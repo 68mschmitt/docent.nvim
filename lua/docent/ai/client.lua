@@ -232,33 +232,112 @@ function M.review_diff(diff_text, pr_info, callback)
       callback(nil, err)
       return
     end
-    -- Extract structured output from the response
+
+    -- Try multiple paths to extract the structured output.
+    -- OpenCode may return it in different shapes depending on the version.
     local structured = nil
-    if resp.info and resp.info.structured_output then
+
+    -- Path 1: resp.info.structured_output (SDK-style)
+    if not structured and resp.info and resp.info.structured_output then
       structured = resp.info.structured_output
-    elseif resp.structured_output then
+    end
+
+    -- Path 2: resp.structured_output (direct)
+    if not structured and resp.structured_output then
       structured = resp.structured_output
     end
 
-    if structured then
-      callback(structured, nil)
-      return
+    -- Path 3: resp.data.info.structured_output (wrapped response)
+    if not structured and resp.data and resp.data.info and resp.data.info.structured_output then
+      structured = resp.data.info.structured_output
     end
 
-    -- Fallback: try to extract JSON from text parts
-    local parts = resp.parts or {}
-    for _, part in ipairs(parts) do
-      if part.type == "text" and part.text then
-        local json_str = part.text:match("```json%s*(.-)%s*```") or part.text
-        local ok, decoded = pcall(vim.json.decode, json_str)
-        if ok and decoded.findings then
-          callback(decoded, nil)
-          return
+    -- Path 4: Search through parts for a tool-result or tool-use part
+    -- containing the StructuredOutput tool's JSON payload
+    if not structured then
+      local parts = resp.parts or (resp.data and resp.data.parts) or {}
+      for _, part in ipairs(parts) do
+        -- Check tool-use parts (the AI calls StructuredOutput with the JSON)
+        if part.type == "tool-use" or part.type == "tool_use" then
+          local input = part.input or part.args or part.arguments
+          if input then
+            -- Input might be a string (JSON) or already a table
+            if type(input) == "string" then
+              local ok, decoded = pcall(vim.json.decode, input)
+              if ok and decoded.findings then
+                structured = decoded
+                break
+              end
+            elseif type(input) == "table" and input.findings then
+              structured = input
+              break
+            end
+          end
+        end
+
+        -- Check tool-result parts
+        if part.type == "tool-result" or part.type == "tool_result" then
+          local content = part.content or part.output or part.text
+          if content then
+            if type(content) == "string" then
+              local ok, decoded = pcall(vim.json.decode, content)
+              if ok and decoded.findings then
+                structured = decoded
+                break
+              end
+            elseif type(content) == "table" and content.findings then
+              structured = content
+              break
+            end
+          end
+        end
+
+        -- Check text parts for JSON (the model may emit it as plain text)
+        if part.type == "text" and part.text then
+          -- Try extracting JSON from markdown code fences
+          local json_str = part.text:match("```json%s*(.-)%s*```")
+          if json_str then
+            local ok, decoded = pcall(vim.json.decode, json_str)
+            if ok and decoded.findings then
+              structured = decoded
+              break
+            end
+          end
+          -- Try the whole text as JSON
+          local ok, decoded = pcall(vim.json.decode, part.text)
+          if ok and type(decoded) == "table" and decoded.findings then
+            structured = decoded
+            break
+          end
         end
       end
     end
 
-    callback(nil, "Could not extract structured review from AI response")
+    -- Path 5: Try parsing the entire response body as the structured output
+    -- (some configurations return the structured data as the top-level object)
+    if not structured and resp.findings then
+      structured = resp
+    end
+
+    if structured and structured.findings then
+      callback(structured, nil)
+    else
+      -- Log the response shape for debugging
+      local keys = vim.tbl_keys(resp)
+      local debug_info = "Response keys: " .. table.concat(keys, ", ")
+      if resp.info then
+        debug_info = debug_info .. " | info keys: " .. table.concat(vim.tbl_keys(resp.info), ", ")
+      end
+      if resp.parts then
+        local part_types = {}
+        for _, p in ipairs(resp.parts) do
+          table.insert(part_types, p.type or "unknown")
+        end
+        debug_info = debug_info .. " | part types: " .. table.concat(part_types, ", ")
+      end
+      vim.notify("[docent] " .. debug_info, vim.log.levels.WARN)
+      callback(nil, "Could not extract structured review from AI response")
+    end
   end, 180000) -- 3 minute timeout for large reviews
 end
 

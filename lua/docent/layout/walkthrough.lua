@@ -177,11 +177,21 @@ function M.request_changes()
 end
 
 ---Close the walkthrough and clean up.
+---Restores the original git branch and pops the stash if one was created.
 function M.close()
   note_panel.close_chat()
+  diff_view.close_terminal()
   layout.close()
   session.reset()
   ai_client.shutdown()
+
+  -- Restore original branch and pop stash
+  local git = require("docent.core.git")
+  git.restore(function(err)
+    if err then
+      vim.notify("[docent] " .. err, vim.log.levels.WARN)
+    end
+  end)
 end
 
 ---Set up keymaps for all walkthrough buffers.

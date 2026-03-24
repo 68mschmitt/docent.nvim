@@ -49,6 +49,7 @@ local M = {}
 local function default_stages()
   return {
     { id = "resolve",   label = "Resolving PR",              status = "pending" },
+    { id = "checkout",  label = "Checking out PR branch",    status = "pending" },
     { id = "server",    label = "Connecting to OpenCode",     status = "pending" },
     { id = "fetch",     label = "Fetching PR data",           status = "pending" },
     { id = "session",   label = "Creating review session",    status = "pending" },

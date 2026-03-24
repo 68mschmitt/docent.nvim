@@ -1,12 +1,14 @@
 --- Review orchestrator.
 --- Coordinates the full review pipeline:
---- open UI -> resolve PR -> connect to OpenCode -> fetch PR data ->
---- create session -> AI review -> transition to walkthrough.
+--- open UI -> resolve PR -> stash & checkout branch -> connect to OpenCode ->
+--- fetch PR data -> create session -> AI review -> transition to walkthrough.
 ---
 --- Opens the three-panel layout immediately and shows stage progress
 --- in the findings panel. On completion, transitions to the walkthrough.
+--- On close, restores the original branch and pops the stash.
 local ai_client = require("docent.ai.client")
 local github = require("docent.github")
+local git = require("docent.core.git")
 local session = require("docent.core.session")
 local layout = require("docent.layout.manager")
 local findings_list = require("docent.ui.findings_list")
@@ -88,6 +90,7 @@ function M.start(pr_ref)
     walkthrough.close()
   end
   session.reset()
+  git.reset()
 
   -- Initialize loading state
   session.start_loading()
@@ -120,103 +123,118 @@ function M.start(pr_ref)
     end
     stage_done("resolve", string.format("%s/%s#%d", owner, repo, number))
 
-    -- Step 2: Connect to OpenCode server
-    stage_active("server")
-    ai_client.ensure_server(function(server_err)
-      if server_err then
-        stage_error("server", server_err)
+    -- Step 2: Stash changes (if any) and checkout the PR branch
+    stage_active("checkout")
+    local git_state = git.get_state()
+    git.checkout_pr(number, function(checkout_err)
+      if checkout_err then
+        stage_error("checkout", checkout_err)
         return
       end
-      stage_done("server")
+      local checkout_detail = git.get_state().pr_branch or "checked out"
+      if git.get_state().did_stash then
+        checkout_detail = checkout_detail .. " (stashed changes)"
+      end
+      stage_done("checkout", checkout_detail)
 
-      -- Step 3: Fetch PR info and diff in parallel
-      stage_active("fetch")
-      local pr_info_done = false
-      local diff_done = false
-      local pr_info_result = nil
-      local diff_result = nil
-      local had_error = false
+      -- Step 3: Connect to OpenCode server
+      stage_active("server")
+      ai_client.ensure_server(function(server_err)
+        if server_err then
+          stage_error("server", server_err)
+          return
+        end
+        stage_done("server")
 
-      local function check_fetch_done()
-        if not pr_info_done or not diff_done or had_error then return end
+        -- Step 4: Fetch PR info and diff in parallel
+        stage_active("fetch")
+        local pr_info_done = false
+        local diff_done = false
+        local pr_info_result = nil
+        local diff_result = nil
+        local had_error = false
 
-        session.set_pr_info(pr_info_result)
-        session.set_diff(diff_result)
+        local function check_fetch_done()
+          if not pr_info_done or not diff_done or had_error then return end
 
-        local detail = string.format(
-          "+%d -%d across %d files",
-          pr_info_result.additions,
-          pr_info_result.deletions,
-          pr_info_result.changed_files
-        )
-        stage_done("fetch", detail)
+          session.set_pr_info(pr_info_result)
+          session.set_diff(diff_result)
 
-        -- Re-render to show PR info in the loading panel
-        refresh_loading()
+          local detail = string.format(
+            "+%d -%d across %d files",
+            pr_info_result.additions,
+            pr_info_result.deletions,
+            pr_info_result.changed_files
+          )
+          stage_done("fetch", detail)
 
-        -- Step 4: Create OpenCode session
-        stage_active("session")
-        local session_title = string.format(
-          "PR Review: %s/%s#%d - %s",
-          owner, repo, number, pr_info_result.title
-        )
-        ai_client.create_session(session_title, function(_, session_err)
-          if session_err then
-            stage_error("session", session_err)
-            return
-          end
-          stage_done("session")
+          -- Re-render to show PR info in the loading panel
+          refresh_loading()
 
-          -- Attach the OpenCode TUI in the diff panel before the AI review starts
-          attach_session_to_diff_panel()
-
-          -- Step 5: AI review
-          stage_active("review")
-          ai_client.review_diff(diff_result, pr_info_result, function(review, review_err)
-            if review_err then
-              stage_error("review", review_err)
+          -- Step 5: Create OpenCode session
+          stage_active("session")
+          local session_title = string.format(
+            "PR Review: %s/%s#%d - %s",
+            owner, repo, number, pr_info_result.title
+          )
+          ai_client.create_session(session_title, function(_, session_err)
+            if session_err then
+              stage_error("session", session_err)
               return
             end
+            stage_done("session")
 
-            -- Populate session (this flips loading->active)
-            session.set_review(review)
+            -- Attach the OpenCode TUI in the diff panel before the AI review starts
+            attach_session_to_diff_panel()
 
-            local stats = session.stats()
-            stage_done("review", string.format("%d findings", stats.total))
+            -- Step 6: AI review
+            stage_active("review")
+            ai_client.review_diff(diff_result, pr_info_result, function(review, review_err)
+              if review_err then
+                stage_error("review", review_err)
+                return
+              end
 
-            -- Transition to walkthrough
-            transition_to_walkthrough()
+              -- Populate session (this flips loading->active)
+              session.set_review(review)
+
+              local stats = session.stats()
+              stage_done("review", string.format("%d findings", stats.total))
+
+              -- Transition to walkthrough
+              transition_to_walkthrough()
+            end)
           end)
+        end
+
+        github.fetch_pr_info(owner, repo, number, function(info, info_err)
+          if info_err then
+            if not had_error then
+              stage_error("fetch", info_err)
+            end
+            had_error = true
+            return
+          end
+          pr_info_result = info
+          pr_info_done = true
+          -- Update loading panel with PR info as soon as it arrives
+          session.set_pr_info(info)
+          refresh_loading()
+          check_fetch_done()
         end)
-      end
 
-      github.fetch_pr_info(owner, repo, number, function(info, info_err)
-        if info_err then
-          if not had_error then
-            stage_error("fetch", info_err)
+        github.fetch_diff(owner, repo, number, function(diff, diff_err)
+          if diff_err then
+            if not had_error then
+              stage_error("fetch", diff_err)
+            end
+            had_error = true
+            return
           end
-          had_error = true
-          return
-        end
-        pr_info_result = info
-        pr_info_done = true
-        -- Update loading panel with PR info as soon as it arrives
-        session.set_pr_info(info)
-        refresh_loading()
-        check_fetch_done()
-      end)
-
-      github.fetch_diff(owner, repo, number, function(diff, diff_err)
-        if diff_err then
-          if not had_error then
-            stage_error("fetch", diff_err)
-          end
-          had_error = true
-          return
-        end
-        diff_result = diff
-        diff_done = true
-        check_fetch_done()
+          diff_result = diff
+          diff_done = true
+          check_fetch_done()
+        end)
       end)
     end)
   end)
