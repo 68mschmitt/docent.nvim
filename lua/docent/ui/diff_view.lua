@@ -44,17 +44,19 @@ end
 ---Used to show the OpenCode TUI while the AI review is running.
 ---@param cmd string The shell command to run (e.g., "opencode attach ...")
 function M.open_terminal(cmd)
-  local win = M.get_win()
+  local win = M.get_win_any()
   if not win then return end
 
-  -- Create a fresh buffer for the terminal
-  M.term_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[M.term_buf].bufhidden = "hide"
+  -- Focus the diff window -- termopen runs in the current buffer
+  vim.api.nvim_set_current_win(win)
 
-  -- Swap the diff buffer out for the terminal buffer in the same window
-  vim.api.nvim_win_set_buf(win, M.term_buf)
+  -- Create a brand new empty buffer and switch to it
+  -- (termopen requires an unmodified, modifiable buffer)
+  vim.cmd("enew")
+  M.term_buf = vim.api.nvim_get_current_buf()
+  vim.bo[M.term_buf].bufhidden = "wipe"
 
-  -- Start the terminal process in this buffer
+  -- Start the terminal process in the current buffer
   M.term_job = vim.fn.termopen(cmd, {
     cwd = vim.fn.getcwd(),
     on_exit = function()
