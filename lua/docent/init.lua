@@ -23,16 +23,19 @@ end
 function M.create_commands()
   vim.api.nvim_create_user_command("DocentReview", function(cmd_opts)
     local pr_ref = cmd_opts.args
+    local review = require("docent.core.review")
+
     if not pr_ref or pr_ref == "" then
-      vim.notify("[docent] Usage: :DocentReview <pr-ref>  (e.g., #123, owner/repo#123, or URL)", vim.log.levels.WARN)
-      return
+      -- No argument: open PR picker
+      review.pick_pr()
+    else
+      -- Argument given: start review directly
+      review.start(pr_ref)
     end
-    require("docent.core.review").start(pr_ref)
   end, {
-    nargs = 1,
-    desc = "Start an AI-guided PR review walkthrough",
+    nargs = "?",
+    desc = "Start an AI-guided PR review walkthrough (no args = pick from open PRs)",
     complete = function()
-      -- Could add completion for open PRs in the future
       return {}
     end,
   })

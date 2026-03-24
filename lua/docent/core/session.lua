@@ -9,8 +9,18 @@ local M = {}
 ---@field assessment string
 ---@field findings table[] Raw findings from AI
 
+---@alias docent.StageStatus "pending"|"active"|"done"|"error"
+
+---@class docent.Stage
+---@field id string Unique stage identifier
+---@field label string Display label
+---@field status docent.StageStatus
+---@field detail? string Optional detail text (e.g., error message or PR title)
+
 ---@class docent.Session
 ---@field active boolean Whether a review session is active
+---@field loading boolean Whether the review is still being generated
+---@field stages docent.Stage[] Pipeline stages shown during loading
 ---@field pr_info docent.PRInfo|nil PR metadata
 ---@field diff_text string|nil Raw unified diff text
 ---@field diff_files docent.DiffFile[] Parsed diff files
@@ -34,9 +44,23 @@ local M = {}
 ---@field header string The @@ line
 ---@field lines string[] Lines in this hunk
 
+---The default pipeline stages shown during review generation.
+---@return docent.Stage[]
+local function default_stages()
+  return {
+    { id = "resolve",   label = "Resolving PR",              status = "pending" },
+    { id = "server",    label = "Connecting to OpenCode",     status = "pending" },
+    { id = "fetch",     label = "Fetching PR data",           status = "pending" },
+    { id = "session",   label = "Creating review session",    status = "pending" },
+    { id = "review",    label = "AI is reviewing the PR",     status = "pending" },
+  }
+end
+
 ---@type docent.Session
 local session = {
   active = false,
+  loading = false,
+  stages = {},
   pr_info = nil,
   diff_text = nil,
   diff_files = {},
@@ -51,6 +75,8 @@ local session = {
 function M.reset()
   session = {
     active = false,
+    loading = false,
+    stages = {},
     pr_info = nil,
     diff_text = nil,
     diff_files = {},
@@ -68,10 +94,39 @@ function M.get()
   return session
 end
 
----Check if a session is active.
+---Check if a session is active (review complete, walkthrough mode).
 ---@return boolean
 function M.is_active()
   return session.active
+end
+
+---Check if a review is being generated (loading mode).
+---@return boolean
+function M.is_loading()
+  return session.loading
+end
+
+---Start the loading pipeline: initialize stages and set loading mode.
+function M.start_loading()
+  session.loading = true
+  session.active = false
+  session.stages = default_stages()
+end
+
+---Update a stage's status and optional detail text.
+---@param stage_id string
+---@param status docent.StageStatus
+---@param detail? string
+function M.update_stage(stage_id, status, detail)
+  for _, stage in ipairs(session.stages) do
+    if stage.id == stage_id then
+      stage.status = status
+      if detail then
+        stage.detail = detail
+      end
+      break
+    end
+  end
 end
 
 ---Set PR info.
@@ -88,6 +143,7 @@ function M.set_diff(diff)
 end
 
 ---Set the AI review result and build the findings list.
+---Transitions from loading to active mode.
 ---@param review docent.ReviewResult
 function M.set_review(review)
   session.review = review
@@ -99,6 +155,7 @@ function M.set_review(review)
   end
   session.findings = findings_mod.sort(session.findings)
   session.current_index = #session.findings > 0 and 1 or 0
+  session.loading = false
   session.active = true
 end
 

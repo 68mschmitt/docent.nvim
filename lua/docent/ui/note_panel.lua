@@ -61,10 +61,20 @@ function M.render()
     local lines = {
       helpers.header_left("Note", width),
       "",
-      "  No finding selected.",
     }
+    if session.is_loading() then
+      table.insert(lines, "  Review in progress...")
+      table.insert(lines, "")
+      table.insert(lines, "  Finding explanations will appear here")
+      table.insert(lines, "  once the AI review completes.")
+    else
+      table.insert(lines, "  No finding selected.")
+    end
     helpers.set_lines(M.buf, lines)
     vim.api.nvim_buf_add_highlight(M.buf, -1, "DocentHeader", 0, 0, -1)
+    if session.is_loading() then
+      pcall(vim.api.nvim_buf_add_highlight, M.buf, -1, "DocentLoading", 2, 0, -1)
+    end
     return
   end
 

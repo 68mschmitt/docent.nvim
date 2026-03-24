@@ -232,4 +232,55 @@ function M.submit_review(owner, repo, number, action, body, callback)
   end)
 end
 
+---@class docent.PRListItem
+---@field number number PR number
+---@field title string PR title
+---@field author string PR author login
+---@field head string Head branch name
+---@field base string Base branch name
+---@field url string PR URL
+---@field updatedAt string ISO timestamp
+
+---Fetch open PRs for the current repo.
+---@param callback fun(prs: docent.PRListItem[]|nil, err: string|nil)
+function M.fetch_open_prs(callback)
+  local gh = config.get().gh_cmd
+  local cmd = {
+    gh, "pr", "list",
+    "--state", "open",
+    "--json", "number,title,author,headRefName,baseRefName,url,updatedAt",
+    "--limit", "30",
+  }
+
+  run_gh(cmd, function(stdout, stderr, code)
+    if code ~= 0 then
+      callback(nil, "gh error: " .. (stderr ~= "" and stderr or "exit code " .. code))
+      return
+    end
+    if stdout == "" then
+      callback({}, nil)
+      return
+    end
+    local ok, parsed = pcall(vim.json.decode, stdout)
+    if not ok then
+      callback(nil, "Failed to parse PR list: " .. stdout)
+      return
+    end
+    ---@type docent.PRListItem[]
+    local prs = {}
+    for _, pr in ipairs(parsed) do
+      table.insert(prs, {
+        number = pr.number or 0,
+        title = pr.title or "",
+        author = pr.author and pr.author.login or "",
+        head = pr.headRefName or "",
+        base = pr.baseRefName or "",
+        url = pr.url or "",
+        updatedAt = pr.updatedAt or "",
+      })
+    end
+    callback(prs, nil)
+  end)
+end
+
 return M

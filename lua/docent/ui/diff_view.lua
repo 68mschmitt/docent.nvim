@@ -50,13 +50,20 @@ function M.render()
   vim.api.nvim_buf_clear_namespace(M.buf, ns, 0, -1)
 
   if not finding then
-    -- No finding selected - show placeholder
+    -- Placeholder: different message for loading vs idle
     local lines = {
       helpers.header_left("Diff", width),
       "",
-      "  No findings to display.",
-      "  Run :DocentReview <pr> to start a review.",
     }
+    if session.is_loading() then
+      table.insert(lines, "  Waiting for AI review to complete...")
+      table.insert(lines, "")
+      table.insert(lines, "  The diff will appear here once")
+      table.insert(lines, "  findings are ready.")
+    else
+      table.insert(lines, "  No findings to display.")
+      table.insert(lines, "  Run :DocentReview <pr> to start a review.")
+    end
     helpers.set_lines(M.buf, lines)
     vim.api.nvim_buf_add_highlight(M.buf, -1, "DocentHeader", 0, 0, -1)
     return
