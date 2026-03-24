@@ -237,19 +237,35 @@ function M.review_diff(diff_text, pr_info, callback)
     -- OpenCode may return it in different shapes depending on the version.
     local structured = nil
 
-    -- Path 1: resp.info.structured_output (SDK-style)
+    -- Helper: if the value is a JSON string, decode it into a table
+    local function ensure_table(val)
+      if type(val) == "string" then
+        local ok, decoded = pcall(vim.json.decode, val)
+        if ok and type(decoded) == "table" then
+          return decoded
+        end
+      end
+      return val
+    end
+
+    -- Path 1: resp.info.structured (actual OpenCode server response shape)
+    if not structured and resp.info and resp.info.structured then
+      structured = ensure_table(resp.info.structured)
+    end
+
+    -- Path 2: resp.info.structured_output (SDK-style)
     if not structured and resp.info and resp.info.structured_output then
       structured = resp.info.structured_output
     end
 
-    -- Path 2: resp.structured_output (direct)
+    -- Path 3: resp.structured_output (direct)
     if not structured and resp.structured_output then
       structured = resp.structured_output
     end
 
-    -- Path 3: resp.data.info.structured_output (wrapped response)
-    if not structured and resp.data and resp.data.info and resp.data.info.structured_output then
-      structured = resp.data.info.structured_output
+    -- Path 4: resp.data.info.structured (wrapped response)
+    if not structured and resp.data and resp.data.info then
+      structured = resp.data.info.structured or resp.data.info.structured_output
     end
 
     -- Path 4: Search through parts for a tool-result or tool-use part
