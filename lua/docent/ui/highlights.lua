@@ -42,6 +42,14 @@ function M.setup()
     DocentDiffHunk     = { fg = "#c678dd" },
     DocentDiffFile     = { fg = "#61afef", bold = true },
 
+    -- Active finding highlight in diff (the lines the current note refers to)
+    DocentDiffFocusLine  = { bg = "#2a2e36", bold = true },
+    DocentDiffFocusAdd   = { fg = "#98c379", bg = "#2a2e36", bold = true },
+    DocentDiffFocusDel   = { fg = "#e06c75", bg = "#2a2e36", bold = true },
+
+    -- Other findings in the same file (subtle gutter + underline)
+    DocentDiffOtherMark  = { sp = "#6b7280", underline = true },
+
     -- Signs (gutter markers for findings in diff view)
     DocentSignBug      = { fg = "#e06c75" },
     DocentSignWarning  = { fg = "#e5c07b" },

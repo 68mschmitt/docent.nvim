@@ -119,6 +119,7 @@ function M.render()
   if not M.buf or not vim.api.nvim_buf_is_valid(M.buf) then return end
 
   local finding = session.current_finding()
+  local s = session.get()
 
   local width = 60
   local win = M.get_win()
@@ -126,7 +127,7 @@ function M.render()
     width = vim.api.nvim_win_get_width(win)
   end
 
-  -- Clear previous finding marker extmarks
+  -- Clear previous extmarks
   vim.api.nvim_buf_clear_namespace(M.buf, ns, 0, -1)
 
   if not finding then
@@ -149,11 +150,42 @@ function M.render()
     return
   end
 
+  -- Determine the line range of the current finding
+  local focus_start = finding.line
+  local focus_end = finding.end_line or finding.line
+
+  -- Collect all other findings in the same file for gutter markers
+  local other_findings = {}
+  for _, f in ipairs(s.findings) do
+    if f.file == finding.file and f.index ~= finding.index then
+      table.insert(other_findings, f)
+    end
+  end
+
+  -- Build a lookup: source line -> list of other findings on that line
+  local other_finding_lines = {} ---@type table<number, docent.Finding[]>
+  for _, f in ipairs(other_findings) do
+    local fl = f.line
+    if not other_finding_lines[fl] then other_finding_lines[fl] = {} end
+    table.insert(other_finding_lines[fl], f)
+    if f.end_line then
+      for l = f.line + 1, f.end_line do
+        if not other_finding_lines[l] then other_finding_lines[l] = {} end
+        table.insert(other_finding_lines[l], f)
+      end
+    end
+  end
+
   -- Find the diff file for this finding
   local diff_file = session.get_diff_file(finding.file)
 
   local lines = {}
   local highlights = {} ---@type {line: number, group: string, col_start: number, col_end: number}[]
+
+  -- Track: buffer line index -> source new-file line number
+  local bufline_to_srcline = {} ---@type table<number, number>
+  -- Track: buffer line index -> diff line type ("add"|"del"|"ctx")
+  local bufline_type = {} ---@type table<number, string>
 
   -- Header: shows the file path
   local header_text = string.format("Diff: %s", finding.file)
@@ -171,7 +203,7 @@ function M.render()
   end
 
   -- Render diff lines with line numbers
-  local target_buf_line = nil -- The buffer line that matches finding.line
+  local target_buf_line = nil -- First buffer line in the focus range
   local new_line_counter = 0
   local in_hunk = false
 
@@ -214,8 +246,10 @@ function M.render()
         local display = num_str .. diff_line
         table.insert(lines, display)
         table.insert(highlights, { line = line_idx, group = "DocentDiffAdd", col_start = 0, col_end = -1 })
+        bufline_to_srcline[line_idx] = new_line_counter
+        bufline_type[line_idx] = "add"
 
-        if new_line_counter == finding.line then
+        if new_line_counter == finding.line and not target_buf_line then
           target_buf_line = line_idx
         end
 
@@ -223,6 +257,7 @@ function M.render()
         local display = "    │" .. diff_line
         table.insert(lines, display)
         table.insert(highlights, { line = line_idx, group = "DocentDiffDel", col_start = 0, col_end = -1 })
+        bufline_type[line_idx] = "del"
 
       else
         -- Context line
@@ -230,8 +265,10 @@ function M.render()
         local num_str = string.format("%4d│", new_line_counter)
         local display = num_str .. diff_line:sub(2) -- Remove the leading space
         table.insert(lines, display)
+        bufline_to_srcline[line_idx] = new_line_counter
+        bufline_type[line_idx] = "ctx"
 
-        if new_line_counter == finding.line then
+        if new_line_counter == finding.line and not target_buf_line then
           target_buf_line = line_idx
         end
       end
@@ -250,7 +287,7 @@ function M.render()
   -- Write to buffer
   helpers.set_lines(M.buf, lines)
 
-  -- Apply highlights
+  -- Apply base diff highlights
   for _, hl in ipairs(highlights) do
     pcall(vim.api.nvim_buf_add_highlight, M.buf, -1, hl.group, hl.line, hl.col_start, hl.col_end)
   end
@@ -258,12 +295,77 @@ function M.render()
   -- Apply footer highlights
   helpers.apply_footer_highlights(M.buf, #lines - 1, hints)
 
-  -- Mark the current finding line with a pointer
+  -- Overlay: highlight the active finding's line range with a focused style
+  -- and mark other findings with gutter signs
+  local findings_mod = require("docent.core.findings")
+
+  for buf_line, src_line in pairs(bufline_to_srcline) do
+    -- Active finding range: strong background highlight
+    if src_line >= focus_start and src_line <= focus_end then
+      local btype = bufline_type[buf_line]
+      local focus_hl
+      if btype == "add" then
+        focus_hl = "DocentDiffFocusAdd"
+      elseif btype == "del" then
+        focus_hl = "DocentDiffFocusDel"
+      else
+        focus_hl = "DocentDiffFocusLine"
+      end
+      pcall(vim.api.nvim_buf_set_extmark, M.buf, ns, buf_line, 0, {
+        line_hl_group = focus_hl,
+        priority = 200,
+      })
+    end
+
+    -- Other findings: gutter sign on their primary line
+    if other_finding_lines[src_line] then
+      for _, of in ipairs(other_finding_lines[src_line]) do
+        -- Only place one sign per line (use the first finding's category)
+        if of.line == src_line then
+          local cat = findings_mod.categories[of.category] or findings_mod.categories.info
+          pcall(vim.api.nvim_buf_set_extmark, M.buf, ns, buf_line, 0, {
+            sign_text = cat.marker:sub(1, 2),
+            sign_hl_group = cat.hl,
+            priority = 50,
+          })
+          break -- one sign per buffer line
+        end
+      end
+    end
+  end
+
+  -- Also mark deleted lines adjacent to the focus range
+  -- (finding may refer to code that was removed)
+  if target_buf_line then
+    -- Walk up/down from target to find adjacent del lines in the same hunk
+    for buf_line = math.max(0, target_buf_line - 5), math.min(#lines - 1, target_buf_line + (focus_end - focus_start) + 5) do
+      if bufline_type[buf_line] == "del" then
+        -- Check if this del line is between/adjacent to the focus range
+        local prev_src = bufline_to_srcline[buf_line - 1]
+        local next_src = bufline_to_srcline[buf_line + 1]
+        local near_focus = false
+        if prev_src and prev_src >= focus_start - 1 and prev_src <= focus_end then
+          near_focus = true
+        end
+        if next_src and next_src >= focus_start and next_src <= focus_end + 1 then
+          near_focus = true
+        end
+        if near_focus then
+          pcall(vim.api.nvim_buf_set_extmark, M.buf, ns, buf_line, 0, {
+            line_hl_group = "DocentDiffFocusDel",
+            priority = 200,
+          })
+        end
+      end
+    end
+  end
+
+  -- Current finding pointer in the gutter
   if target_buf_line then
     pcall(vim.api.nvim_buf_set_extmark, M.buf, ns, target_buf_line, 0, {
       sign_text = "▸",
       sign_hl_group = "DocentCurrent",
-      priority = 100,
+      priority = 300,
     })
   end
 
