@@ -4,7 +4,8 @@ local M = {}
 
 function M.register()
     vim.api.nvim_create_user_command("DocentStartReview", function()
-        require("docent.review.get").get_pull_request_list()
+        local cfg = require("docent.config").get()
+        require("docent.review.pr_options").present_options(cfg.pr_cli_command)
     end, { desc = "Start a Pull Request Review" })
 end
 
