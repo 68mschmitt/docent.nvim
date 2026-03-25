@@ -1,4 +1,5 @@
 local M = {}
+local diff_view = require("docent.review.diff_view")
 
 local function format_pr_option(item)
     local author_name = item.author.login
@@ -22,7 +23,8 @@ function M.populate_selection_menu(prompt, options)
         },
         function(choice)
             if choice ~= nil then
-                vim.notify("You chose " .. choice.author.name .. "!")
+                vim.notify("Checked out branch for PR #" .. choice.number .. "!")
+                diff_view.new_diff_view(choice.number)
             end
         end)
 end

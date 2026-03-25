@@ -1,8 +1,6 @@
 local M = {}
 local menu_utils = require("docent.menu.menu_utils")
 
-local tmp_pr_command = "(cd ~/sc/compliance/onyx/core-compliance-api/ && gh pr list -q . --json number,author,title | jq)"
-
 function M.present_options(pr_command)
     local pr_list = vim.fn.system(pr_command)
 
